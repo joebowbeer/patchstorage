@@ -1,5 +1,5 @@
 use camino::Utf8PathBuf;
-use clap::{CommandFactory, error::ErrorKind as ClapErrorKind, Parser};
+use clap::{error::ErrorKind as ClapErrorKind, CommandFactory, Parser};
 use error_chain::error_chain;
 use futures_util::TryStreamExt;
 use page_turner::prelude::*;
@@ -33,7 +33,10 @@ struct GetPatchesRequest {
 
 impl GetPatchesRequest {
     fn build(&self) -> String {
-        format!("https://patchstorage.com/api/beta/patches/?platforms={}&page={}", self.platform, self.page)
+        format!(
+            "https://patchstorage.com/api/beta/patches/?platforms={}&page={}",
+            self.platform, self.page
+        )
     }
 }
 
@@ -62,7 +65,10 @@ impl PageTurner<GetPatchesRequest> for PatchesClient {
     type PageItems = Vec<Patch>;
     type PageError = Error;
 
-    async fn turn_page(&self, mut request: GetPatchesRequest) -> TurnedPageResult<Self, GetPatchesRequest> {
+    async fn turn_page(
+        &self,
+        mut request: GetPatchesRequest,
+    ) -> TurnedPageResult<Self, GetPatchesRequest> {
         let response = self.get_patches_page(request.clone()).await?;
         if response.has_next {
             request.page += 1;
@@ -125,10 +131,7 @@ async fn main() -> Result<()> {
         let mut cmd = Args::command();
         cmd.error(
             ClapErrorKind::ValueValidation,
-            format!(
-                "output directory `{}` doesn't exist",
-                args.output_dir
-            ),
+            format!("output directory `{}` doesn't exist", args.output_dir),
         )
         .exit();
     }
@@ -138,8 +141,10 @@ async fn main() -> Result<()> {
         .build()?;
 
     let fetcher = PatchesClient {};
-    let mut pager =
-        std::pin::pin!(fetcher.pages(GetPatchesRequest { platform: MERIS_LVX_PLATFORM, page: 1}));
+    let mut pager = std::pin::pin!(fetcher.pages(GetPatchesRequest {
+        platform: MERIS_LVX_PLATFORM,
+        page: 1
+    }));
     while let Some(patches) = pager.try_next().await? {
         for patch in patches {
             println!("{patch:#?}");
@@ -153,12 +158,19 @@ async fn main() -> Result<()> {
                 break;
             }
 
-            let request = GetPatchMetaDataRequest { id: patch.id.as_u64().unwrap() };
+            let request = GetPatchMetaDataRequest {
+                id: patch.id.as_u64().unwrap(),
+            };
             let metadata = get_patch_metadata(request).await?;
             println!("{metadata:#?}");
 
             // TODO: retry on failure
-            let bytes = client.get(&metadata.files[0].url).send().await?.bytes().await?;
+            let bytes = client
+                .get(&metadata.files[0].url)
+                .send()
+                .await?
+                .bytes()
+                .await?;
 
             let mut file = File::create(&filename)?;
             println!("Writing file: {filename}");
