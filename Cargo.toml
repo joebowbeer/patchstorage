@@ -4,9 +4,9 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+anyhow = "1.0.86"
 camino = "1.1.7"
 clap = { version = "4.5.6", features = ["derive"] }
-error-chain = "0.12.4"
 futures-util = "0.3.30"
 page-turner = "1.0.0"
 parse_link_header = "0.3.3"

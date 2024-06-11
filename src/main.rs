@@ -1,6 +1,6 @@
+use anyhow::{ensure, Context, Error, Result};
 use camino::Utf8PathBuf;
-use clap::{error::ErrorKind as ClapErrorKind, CommandFactory, Parser};
-use error_chain::error_chain;
+use clap::Parser;
 use futures_util::TryStreamExt;
 use page_turner::prelude::*;
 use parse_link_header::parse_with_rel;
@@ -9,13 +9,6 @@ use serde::Deserialize;
 use serde_json::Number;
 use std::fs::File;
 use std::io::Write;
-
-error_chain! {
-    foreign_links {
-        Io(std::io::Error);
-        HttpRequest(reqwest::Error);
-    }
-}
 
 const MERIS_LVX_PLATFORM: u64 = 8008;
 
@@ -50,15 +43,19 @@ struct PatchesClient {}
 impl PatchesClient {
     async fn get_patches_page(&self, request: GetPatchesRequest) -> Result<PatchesPage> {
         let response = reqwest::get(request.build()).await?;
-        let has_next = has_next(response.headers().clone());
+        let has_next = has_next(response.headers().clone())?;
         let patches = response.json::<Vec<Patch>>().await?;
         Ok(PatchesPage { patches, has_next })
     }
 }
 
-fn has_next(headers: HeaderMap) -> bool {
-    let link_header = headers.get(header::LINK).unwrap().to_str().unwrap();
-    parse_with_rel(link_header).unwrap().get("next").is_some()
+fn has_next(headers: HeaderMap) -> Result<bool> {
+    let link_header = headers
+        .get(header::LINK)
+        .context("missing Link header")?
+        .to_str()?;
+    let rel_map = parse_with_rel(link_header)?;
+    Ok(rel_map.get("next").is_some())
 }
 
 impl PageTurner<GetPatchesRequest> for PatchesClient {
@@ -127,18 +124,11 @@ struct Args {
 async fn main() -> Result<()> {
     let args = Args::parse();
     dbg!(&args);
-    if !args.output_dir.exists() {
-        let mut cmd = Args::command();
-        cmd.error(
-            ClapErrorKind::ValueValidation,
-            format!("output directory `{}` doesn't exist", args.output_dir),
-        )
-        .exit();
-    }
-
-    let client = reqwest::Client::builder()
-        .pool_max_idle_per_host(0)
-        .build()?;
+    ensure!(
+        args.output_dir.exists(),
+        "output directory `{}` doesn't exist",
+        args.output_dir
+    );
 
     let fetcher = PatchesClient {};
     let mut pager = std::pin::pin!(fetcher.pages(GetPatchesRequest {
@@ -146,6 +136,7 @@ async fn main() -> Result<()> {
         page: 1
     }));
     while let Some(patches) = pager.try_next().await? {
+        println!("Processing {} patches", patches.len());
         for patch in patches {
             println!("{patch:#?}");
 
@@ -155,26 +146,21 @@ async fn main() -> Result<()> {
             // TODO: option to overwrite
             if filename.exists() {
                 println!("Skipping file: {filename}");
-                break;
+                continue;
             }
 
             let request = GetPatchMetaDataRequest {
-                id: patch.id.as_u64().unwrap(),
+                id: patch.id.as_u64().context("patch id is unsigned int")?,
             };
             let metadata = get_patch_metadata(request).await?;
             println!("{metadata:#?}");
 
             // TODO: retry on failure
-            let bytes = client
-                .get(&metadata.files[0].url)
-                .send()
-                .await?
-                .bytes()
-                .await?;
+            let bytes = reqwest::get(&metadata.files[0].url).await?.bytes().await?;
 
             let mut file = File::create(&filename)?;
             println!("Writing file: {filename}");
-            file.write_all(&bytes).unwrap();
+            file.write_all(&bytes)?;
         }
     }
     Ok(())
