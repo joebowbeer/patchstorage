@@ -2,9 +2,7 @@ use anyhow::{ensure, Context, Error, Result};
 use camino::Utf8PathBuf;
 use clap::Parser;
 use futures_util::TryStreamExt;
-use httpclient::header::HeaderMap;
-use httpclient::InMemoryResponseExt;
-use httpclient::{header, Client};
+use httpclient::{header, header::HeaderMap, Client, InMemoryResponseExt, Retry};
 use page_turner::prelude::*;
 use parse_link_header::parse_with_rel;
 use serde::Deserialize;
@@ -132,6 +130,7 @@ async fn main() -> Result<()> {
         args.output_dir
     );
 
+    let client = Client::new().with_middleware(Retry::default());
     let fetcher = PagedPatches {};
     let mut pager = std::pin::pin!(fetcher.pages(GetPatchesRequest {
         platform: MERIS_LVX_PLATFORM,
@@ -157,8 +156,7 @@ async fn main() -> Result<()> {
             let metadata = get_patch_metadata(request).await?;
             println!("{metadata:#?}");
 
-            // TODO: retry on failure
-            let bytes = Client::new().get(&metadata.files[0].url).await?.bytes()?;
+            let bytes = &client.get(&metadata.files[0].url).await?.bytes()?;
 
             let mut file = File::create(&filename)?;
             println!("Writing file: {filename}");
