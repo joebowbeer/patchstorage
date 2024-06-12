@@ -129,7 +129,7 @@ async fn main() -> Result<()> {
         args.output_dir
     );
 
-    let client = Client::new().with_middleware(Retry::default());
+    let client = Client::new().with_middleware(Retry::new());
     let paginated = PagedPatches {
         client: client.clone(),
     };
