@@ -2,9 +2,11 @@ use anyhow::{ensure, Context, Error, Result};
 use camino::Utf8PathBuf;
 use clap::Parser;
 use futures_util::TryStreamExt;
+use httpclient::header::HeaderMap;
+use httpclient::InMemoryResponseExt;
+use httpclient::{header, Client};
 use page_turner::prelude::*;
 use parse_link_header::parse_with_rel;
-use reqwest::header::{self, HeaderMap};
 use serde::Deserialize;
 use serde_json::Number;
 use std::fs::File;
@@ -42,9 +44,9 @@ struct PagedPatches {}
 
 impl PagedPatches {
     async fn get_patches_page(&self, request: GetPatchesRequest) -> Result<PatchesPage> {
-        let response = reqwest::get(request.build()).await?;
+        let response = Client::new().get(&request.build()).await?;
         let has_next = self.has_next(response.headers().clone())?;
-        let patches = response.json::<Vec<Patch>>().await?;
+        let patches = response.json::<Vec<Patch>>()?;
         Ok(PatchesPage { patches, has_next })
     }
 
@@ -107,8 +109,8 @@ impl GetPatchMetaDataRequest {
 }
 
 async fn get_patch_metadata(request: GetPatchMetaDataRequest) -> Result<PatchMetaData> {
-    let response = reqwest::get(request.build()).await?;
-    let metadata = response.json::<PatchMetaData>().await?;
+    let response = Client::new().get(&request.build()).await?;
+    let metadata = response.json::<PatchMetaData>()?;
     Ok(metadata)
 }
 
@@ -150,13 +152,13 @@ async fn main() -> Result<()> {
             }
 
             let request = GetPatchMetaDataRequest {
-                id: patch.id.as_u64().context("invalid patch id")?,
+                id: patch.id.as_u64().context("expected unsigned patch id")?,
             };
             let metadata = get_patch_metadata(request).await?;
             println!("{metadata:#?}");
 
             // TODO: retry on failure
-            let bytes = reqwest::get(&metadata.files[0].url).await?.bytes().await?;
+            let bytes = Client::new().get(&metadata.files[0].url).await?.bytes()?;
 
             let mut file = File::create(&filename)?;
             println!("Writing file: {filename}");
