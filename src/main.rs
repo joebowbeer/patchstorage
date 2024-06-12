@@ -38,27 +38,27 @@ struct PatchesPage {
     has_next: bool,
 }
 
-struct PatchesClient {}
+struct PagedPatches {}
 
-impl PatchesClient {
+impl PagedPatches {
     async fn get_patches_page(&self, request: GetPatchesRequest) -> Result<PatchesPage> {
         let response = reqwest::get(request.build()).await?;
-        let has_next = has_next(response.headers().clone())?;
+        let has_next = self.has_next(response.headers().clone())?;
         let patches = response.json::<Vec<Patch>>().await?;
         Ok(PatchesPage { patches, has_next })
     }
+
+    fn has_next(&self, headers: HeaderMap) -> Result<bool> {
+        let link_header = headers
+            .get(header::LINK)
+            .context("missing Link header")?
+            .to_str()?;
+        let rel_map = parse_with_rel(link_header)?;
+        Ok(rel_map.get("next").is_some())
+    }
 }
 
-fn has_next(headers: HeaderMap) -> Result<bool> {
-    let link_header = headers
-        .get(header::LINK)
-        .context("missing Link header")?
-        .to_str()?;
-    let rel_map = parse_with_rel(link_header)?;
-    Ok(rel_map.get("next").is_some())
-}
-
-impl PageTurner<GetPatchesRequest> for PatchesClient {
+impl PageTurner<GetPatchesRequest> for PagedPatches {
     type PageItems = Vec<Patch>;
     type PageError = Error;
 
@@ -130,7 +130,7 @@ async fn main() -> Result<()> {
         args.output_dir
     );
 
-    let fetcher = PatchesClient {};
+    let fetcher = PagedPatches {};
     let mut pager = std::pin::pin!(fetcher.pages(GetPatchesRequest {
         platform: MERIS_LVX_PLATFORM,
         page: 1
@@ -150,7 +150,7 @@ async fn main() -> Result<()> {
             }
 
             let request = GetPatchMetaDataRequest {
-                id: patch.id.as_u64().context("patch id is unsigned int")?,
+                id: patch.id.as_u64().context("invalid patch id")?,
             };
             let metadata = get_patch_metadata(request).await?;
             println!("{metadata:#?}");
