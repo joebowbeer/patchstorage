@@ -38,17 +38,19 @@ struct PatchesPage {
     has_next: bool,
 }
 
-struct PagedPatches {}
+struct PagedPatches {
+    client: Client,
+}
 
 impl PagedPatches {
     async fn get_patches_page(&self, request: GetPatchesRequest) -> Result<PatchesPage> {
-        let response = Client::new().get(&request.build()).await?;
-        let has_next = self.has_next(response.headers().clone())?;
+        let response = self.client.get(&request.build()).await?;
+        let has_next = self.has_next(&response.headers())?;
         let patches = response.json::<Vec<Patch>>()?;
         Ok(PatchesPage { patches, has_next })
     }
 
-    fn has_next(&self, headers: HeaderMap) -> Result<bool> {
+    fn has_next(&self, headers: &HeaderMap) -> Result<bool> {
         let link_header = headers
             .get(header::LINK)
             .context("missing Link header")?
@@ -96,20 +98,17 @@ struct PatchFile {
     filename: String,
 }
 
-struct GetPatchMetaDataRequest {
-    id: u64,
-}
-
-impl GetPatchMetaDataRequest {
-    fn build(&self) -> String {
-        format!("https://patchstorage.com/api/beta/patches/{}", self.id)
-    }
-}
-
-async fn get_patch_metadata(request: GetPatchMetaDataRequest) -> Result<PatchMetaData> {
-    let response = Client::new().get(&request.build()).await?;
+async fn get_patch_metadata(client: &Client, id: u64) -> Result<PatchMetaData> {
+    let url = format!("https://patchstorage.com/api/beta/patches/{id}");
+    let response = client.get(&url).await?;
     let metadata = response.json::<PatchMetaData>()?;
     Ok(metadata)
+}
+
+async fn get_patch_bytes(client: &Client, url: &str) -> Result<Vec<u8>> {
+    let response = client.get(&url).await?;
+    let bytes = response.bytes()?.to_vec();
+    Ok(bytes)
 }
 
 #[derive(Debug, Parser)]
@@ -131,8 +130,10 @@ async fn main() -> Result<()> {
     );
 
     let client = Client::new().with_middleware(Retry::default());
-    let fetcher = PagedPatches {};
-    let mut pager = std::pin::pin!(fetcher.pages(GetPatchesRequest {
+    let paginated = PagedPatches {
+        client: client.clone(),
+    };
+    let mut pager = std::pin::pin!(paginated.pages(GetPatchesRequest {
         platform: MERIS_LVX_PLATFORM,
         page: 1
     }));
@@ -150,17 +151,16 @@ async fn main() -> Result<()> {
                 continue;
             }
 
-            let request = GetPatchMetaDataRequest {
-                id: patch.id.as_u64().context("expected unsigned patch id")?,
-            };
-            let metadata = get_patch_metadata(request).await?;
+            let id = patch.id.as_u64().context("expected unsigned patch id")?;
+            let metadata = get_patch_metadata(&client, id).await?;
             println!("{metadata:#?}");
 
-            let bytes = &client.get(&metadata.files[0].url).await?.bytes()?;
+            let buf = get_patch_bytes(&client, &metadata.files[0].url).await?;
+            println!("Read {} bytes", buf.len());
 
             let mut file = File::create(&filename)?;
             println!("Writing file: {filename}");
-            file.write_all(&bytes)?;
+            file.write_all(&buf)?;
         }
     }
     Ok(())
