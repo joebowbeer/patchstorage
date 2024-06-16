@@ -2,9 +2,12 @@ use anyhow::{ensure, Context, Error, Result};
 use camino::Utf8PathBuf;
 use clap::Parser;
 use futures_util::TryStreamExt;
-use httpclient::{header, header::HeaderMap, Client, InMemoryResponseExt, Retry};
 use page_turner::prelude::*;
 use parse_link_header::parse_with_rel;
+use reqwest::header::{self, HeaderMap};
+use reqwest::Client;
+use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
+use reqwest_retry::{policies::ExponentialBackoff, RetryTransientMiddleware};
 use serde::Deserialize;
 use serde_json::Number;
 use std::fs::File;
@@ -39,14 +42,14 @@ struct PatchesPage {
 }
 
 struct PagedPatches {
-    client: Client,
+    client: ClientWithMiddleware,
 }
 
 impl PagedPatches {
     async fn get_patches_page(&self, request: GetPatchesRequest) -> Result<PatchesPage> {
-        let response = self.client.get(&request.build()).await?;
+        let response = self.client.get(&request.build()).send().await?;
         let has_next = self.has_next(&response.headers())?;
-        let patches = response.json::<Vec<Patch>>()?;
+        let patches = response.json::<Vec<Patch>>().await?;
         Ok(PatchesPage { patches, has_next })
     }
 
@@ -98,17 +101,17 @@ struct PatchFile {
     filename: String,
 }
 
-async fn get_patch_metadata(client: &Client, id: u64) -> Result<PatchMetaData> {
+async fn get_patch_metadata(client: &ClientWithMiddleware, id: u64) -> Result<PatchMetaData> {
     let url = format!("https://patchstorage.com/api/beta/patches/{id}");
-    let response = client.get(&url).await?;
-    let metadata = response.json::<PatchMetaData>()?;
+    let response = client.get(&url).send().await?;
+    let metadata = response.json::<PatchMetaData>().await?;
     Ok(metadata)
 }
 
-async fn get_patch_bytes(client: &Client, url: &str) -> Result<Vec<u8>> {
-    let response = client.get(&url).await?;
-    let bytes = response.bytes()?.to_vec();
-    Ok(bytes)
+async fn get_patch_bytes(client: &ClientWithMiddleware, url: &str) -> Result<Vec<u8>> {
+    let response = client.get(url).send().await?;
+    let bytes = response.bytes().await?;
+    Ok(bytes.to_vec())
 }
 
 #[derive(Debug, Parser)]
@@ -129,7 +132,12 @@ async fn main() -> Result<()> {
         args.output_dir
     );
 
-    let client = Client::new().with_middleware(Retry::new());
+    // reqwest client that retries failed requests
+    let retry_policy = ExponentialBackoff::builder().build_with_max_retries(5);
+    let client = ClientBuilder::new(Client::new())
+        .with(RetryTransientMiddleware::new_with_policy(retry_policy))
+        .build();
+
     let paginated = PagedPatches {
         client: client.clone(),
     };
