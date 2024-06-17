@@ -125,34 +125,33 @@ async fn get_patch_bytes(client: &ClientWithMiddleware, url: &str) -> Result<Vec
 }
 
 fn sysex_filter(buf: &[u8]) -> Option<&[u8]> {
-    let len = buf.len();
-    let mut first = len;
-    for i in 0..len {
-        if buf[i] >= 0xF0 {
-            first = i;
-            break;
-        }
-    }
-    if first == len || buf[first] != 0xF0 {
-        // F0 not found
-        // TODO: or found another system message
+    let mut iter = buf.iter();
+    let start = iter.position(|x| *x >= 0xF0)?;
+    if buf[start] != 0xF0 {
+        eprintln!("Unsupported system message '{:?}'", buf[start]);
         return None;
     }
-    let mut last = len;
-    for j in (first + 1)..len {
-        if buf[j] == 0xF7 {
-            last = j;
-            break;
-        }
-    }
-    if last == len {
-        // F7 not found
+    let last = iter.position(|x| *x == 0xF7)?;
+    let end = start + last + 2;
+    if (start, end) == (0, buf.len()) {
+        // Unchanged
         return None;
     }
-    if first > 0 || last < len - 1 {
-        return Some(&buf[first..=last]);
-    }
-    None // Nothing trimmed
+    Some(&buf[start..end])
+}
+
+#[test]
+fn sysex_filter_test() {
+    assert_eq!(sysex_filter(&[]), None);
+    assert_eq!(sysex_filter(&[0xF0, 0xF7]), None);
+    assert_eq!(
+        sysex_filter(&[0xB0, 0x76, 0x7F, 0xF0, 0xF7]).unwrap().len(),
+        2
+    );
+    assert_eq!(
+        sysex_filter(&[0xF0, 0xF7, 0xB0, 0x76, 0x00]).unwrap().len(),
+        2
+    );
 }
 
 #[derive(Debug, Parser)]
@@ -233,9 +232,9 @@ async fn main() -> Result<()> {
             if args.platform == Platform::MerisLvx {
                 if let Some(filtered) = sysex_filter(&buf) {
                     buf = filtered.to_vec();
-                    println!("Writing {} bytes", buf.len());
+                    println!("Accepted {} bytes", buf.len());
                 } else {
-                    println!("Nothing filtered.");
+                    println!("Nothing trimmed");
                 }
             }
 
