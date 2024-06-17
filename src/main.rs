@@ -21,7 +21,11 @@ enum Platform {
     /// Meris LVX
     #[default]
     MerisLvx,
-    /// ZOIA
+    /// Meris MercuryX
+    MerisMercuryX,
+    /// Mozaic
+    Mozaic,
+    /// ZOIA / Euroburo
     Zoia,
 }
 
@@ -63,6 +67,8 @@ impl PagedPatches {
         Ok(PatchesPage { patches, has_next })
     }
 
+    // TODO: Use x-wp-totalpages
+    // https://developer.wordpress.org/rest-api/using-the-rest-api/pagination/
     fn has_next(&self, headers: &HeaderMap) -> Result<bool> {
         let link_header = headers
             .get(header::LINK)
@@ -154,6 +160,7 @@ fn sysex_filter_test() {
     );
 }
 
+// TODO: Add dry-run, limit and search
 #[derive(Debug, Parser)]
 #[clap(version)]
 struct Args {
@@ -182,7 +189,9 @@ async fn main() -> Result<()> {
 
     let (platform, extension) = match args.platform {
         Platform::MerisLvx => (8008, "syx"),
-        Platform::Zoia => (3003, "bin"),
+        Platform::MerisMercuryX => (9190, "syx"),
+        Platform::Mozaic => (3341, "mozaic"), // extensions: mozaic, txt, zip
+        Platform::Zoia => (3003, "bin"),      // extensions: bin, zip
     };
 
     // reqwest client that retries failed requests
@@ -228,8 +237,7 @@ async fn main() -> Result<()> {
             let mut buf = get_patch_bytes(&client, &patch_file.url).await?;
             println!("Read {} bytes", buf.len());
 
-            // TODO: Strategy
-            if args.platform == Platform::MerisLvx {
+            if extension == "syx" {
                 if let Some(filtered) = sysex_filter(&buf) {
                     buf = filtered.to_vec();
                     println!("Accepted {} bytes", buf.len());
