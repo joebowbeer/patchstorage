@@ -8,12 +8,22 @@ use reqwest::header::{self, HeaderMap};
 use reqwest::Client;
 use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
 use reqwest_retry::{policies::ExponentialBackoff, RetryTransientMiddleware};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Number;
+use std::ffi::OsStr;
 use std::fs::File;
 use std::io::Write;
+use std::path::Path;
 
-const MERIS_LVX_PLATFORM: u64 = 8008;
+#[derive(clap::ValueEnum, Clone, Debug, Default, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+enum Platform {
+    /// Meris LVX
+    #[default]
+    MerisLvx,
+    /// ZOIA
+    Zoia,
+}
 
 #[derive(Debug, Deserialize)]
 struct Patch {
@@ -23,8 +33,8 @@ struct Patch {
 
 #[derive(Clone)]
 struct GetPatchesRequest {
-    platform: u64,
-    page: u32,
+    platform: usize,
+    page: usize,
 }
 
 impl GetPatchesRequest {
@@ -114,12 +124,51 @@ async fn get_patch_bytes(client: &ClientWithMiddleware, url: &str) -> Result<Vec
     Ok(bytes.to_vec())
 }
 
+fn sysex_filter(buf: &[u8]) -> Option<&[u8]> {
+    let len = buf.len();
+    let mut first = len;
+    for i in 0..len {
+        if buf[i] >= 0xF0 {
+            first = i;
+            break;
+        }
+    }
+    if first == len || buf[first] != 0xF0 {
+        // F0 not found
+        // TODO: or found another system message
+        return None;
+    }
+    let mut last = len;
+    for j in (first + 1)..len {
+        if buf[j] == 0xF7 {
+            last = j;
+            break;
+        }
+    }
+    if last == len {
+        // F7 not found
+        return None;
+    }
+    if first > 0 || last < len - 1 {
+        return Some(&buf[first..=last]);
+    }
+    None // Nothing trimmed
+}
+
 #[derive(Debug, Parser)]
 #[clap(version)]
 struct Args {
     /// Where to put the patches
     #[clap(short, long, default_value = "out")]
     output_dir: Utf8PathBuf,
+
+    /// Overwrite file if it already exists
+    #[clap(long, default_value = "false")]
+    overwrite: bool,
+
+    /// Platform
+    #[clap(short, long, default_value_t, value_enum)]
+    platform: Platform,
 }
 
 #[tokio::main]
@@ -132,6 +181,11 @@ async fn main() -> Result<()> {
         args.output_dir
     );
 
+    let (platform, extension) = match args.platform {
+        Platform::MerisLvx => (8008, "syx"),
+        Platform::Zoia => (3003, "bin"),
+    };
+
     // reqwest client that retries failed requests
     let retry_policy = ExponentialBackoff::builder().build_with_max_retries(5);
     let client = ClientBuilder::new(Client::new())
@@ -141,30 +195,49 @@ async fn main() -> Result<()> {
     let paginated = PagedPatches {
         client: client.clone(),
     };
-    let mut pager = std::pin::pin!(paginated.pages(GetPatchesRequest {
-        platform: MERIS_LVX_PLATFORM,
-        page: 1
-    }));
+    let mut pager = std::pin::pin!(paginated.pages(GetPatchesRequest { platform, page: 1 }));
     while let Some(patches) = pager.try_next().await? {
         println!("Processing {} patches", patches.len());
         for patch in patches {
             println!("{patch:#?}");
 
             let mut filename = args.output_dir.join(&patch.slug);
-            filename.set_extension("syx");
+            filename.set_extension(extension);
 
-            // TODO: option to overwrite
             if filename.exists() {
-                println!("Skipping file: {filename}");
-                continue;
+                if args.overwrite {
+                    println!("Overwriting file: {filename}");
+                } else {
+                    println!("Retaining file: {filename}");
+                    continue;
+                }
             }
 
             let id = patch.id.as_u64().context("expected unsigned patch id")?;
             let metadata = get_patch_metadata(&client, id).await?;
             println!("{metadata:#?}");
 
-            let buf = get_patch_bytes(&client, &metadata.files[0].url).await?;
+            let patch_file = &metadata.files[0];
+            let patch_file_extension = Path::new(&patch_file.filename)
+                .extension()
+                .and_then(OsStr::to_str);
+            if patch_file_extension != Some(&extension) {
+                println!("Skipping file: {}", patch_file.filename);
+                continue;
+            }
+
+            let mut buf = get_patch_bytes(&client, &patch_file.url).await?;
             println!("Read {} bytes", buf.len());
+
+            // TODO: Strategy
+            if args.platform == Platform::MerisLvx {
+                if let Some(filtered) = sysex_filter(&buf) {
+                    buf = filtered.to_vec();
+                    println!("Writing {} bytes", buf.len());
+                } else {
+                    println!("Nothing filtered.");
+                }
+            }
 
             let mut file = File::create(&filename)?;
             println!("Writing file: {filename}");
