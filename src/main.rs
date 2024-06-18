@@ -15,6 +15,11 @@ use std::fs::File;
 use std::io::Write;
 use std::path::Path;
 
+/// Patchstorage endpoint
+// https://patchstorage.com/docs/api/beta/
+// https://github.com/patchstorage/patchstorage-docs/wiki
+const PATCHSTORAGE_API: &str = "https://patchstorage.com/api/beta";
+
 #[derive(clap::ValueEnum, Clone, Debug, Default, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 enum Platform {
@@ -44,7 +49,7 @@ struct GetPatchesRequest {
 impl GetPatchesRequest {
     fn build(&self) -> String {
         format!(
-            "https://patchstorage.com/api/beta/patches/?platforms={}&page={}",
+            "{PATCHSTORAGE_API}/patches/?platforms={}&page={}",
             self.platform, self.page
         )
     }
@@ -118,7 +123,7 @@ struct PatchFile {
 }
 
 async fn get_patch_metadata(client: &ClientWithMiddleware, id: u64) -> Result<PatchMetaData> {
-    let url = format!("https://patchstorage.com/api/beta/patches/{id}");
+    let url = format!("{PATCHSTORAGE_API}/patches/{id}");
     let response = client.get(&url).send().await?;
     let metadata = response.json::<PatchMetaData>().await?;
     Ok(metadata)
