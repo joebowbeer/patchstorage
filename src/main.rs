@@ -137,12 +137,12 @@ async fn get_patch_bytes(client: &ClientWithMiddleware, url: &str) -> Result<Vec
 
 fn sysex_filter(buf: &[u8]) -> Option<&[u8]> {
     let mut iter = buf.iter();
-    let start = iter.position(|x| *x >= 0xF0)?;
+    let start = iter.position(|&x| x >= 0xF0)?;
     if buf[start] != 0xF0 {
         eprintln!("Unsupported system message '{:?}'", buf[start]);
         return None;
     }
-    let last = iter.position(|x| *x == 0xF7)?;
+    let last = iter.position(|&x| x == 0xF7)?;
     let end = start + last + 2;
     if (start, end) == (0, buf.len()) {
         // Unchanged
