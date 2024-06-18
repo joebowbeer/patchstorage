@@ -165,6 +165,18 @@ fn sysex_filter_test() {
     );
 }
 
+fn has_extension(filename: &str, extension: &str) -> bool {
+    Path::new(filename).extension() == Some(OsStr::new(extension))
+}
+
+#[test]
+fn has_extension_test() {
+    assert!(!has_extension("basename", "bin"));
+    assert!(!has_extension("basename.syx", "bin"));
+    assert!(has_extension("basename.syx", "syx"));
+    assert!(has_extension("basename.tar.gz", "gz"));
+}
+
 // TODO: Add dry-run, limit and search
 #[derive(Debug, Parser)]
 #[clap(version)]
@@ -231,10 +243,7 @@ async fn main() -> Result<()> {
             println!("{metadata:#?}");
 
             let patch_file = &metadata.files[0];
-            let patch_file_extension = Path::new(&patch_file.filename)
-                .extension()
-                .and_then(OsStr::to_str);
-            if patch_file_extension != Some(&extension) {
+            if !has_extension(&patch_file.filename, &extension) {
                 println!("Skipping file: {}", patch_file.filename);
                 continue;
             }
