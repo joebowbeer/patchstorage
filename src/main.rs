@@ -79,8 +79,7 @@ impl PagedPatches {
             .get(header::LINK)
             .context("missing Link header")?
             .to_str()?;
-        let rel_map = parse_with_rel(link_header)?;
-        Ok(rel_map.get("next").is_some())
+        Ok(parse_with_rel(link_header)?.contains_key("next"))
     }
 }
 
