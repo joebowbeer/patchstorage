@@ -20,6 +20,97 @@ use std::path::Path;
 // https://github.com/patchstorage/patchstorage-docs/wiki
 const PATCHSTORAGE_API: &str = "https://patchstorage.com/api/beta";
 
+// TODO: Add dry-run, limit and search
+#[derive(Debug, Parser)]
+#[clap(version)]
+struct Args {
+    /// Where to put the patches
+    #[clap(short, long, default_value = "out")]
+    output_dir: Utf8PathBuf,
+
+    /// Overwrite file if it already exists
+    #[clap(long, default_value = "false")]
+    overwrite: bool,
+
+    /// Platform
+    #[clap(short, long, default_value_t, value_enum)]
+    platform: Platform,
+}
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    let args = Args::parse();
+    dbg!(&args);
+    ensure!(
+        args.output_dir.exists(),
+        "output directory `{}` doesn't exist",
+        args.output_dir
+    );
+
+    let (platform, extension) = match args.platform {
+        Platform::MerisLvx => (8008, "syx"),
+        Platform::MerisMercuryX => (9190, "syx"),
+        Platform::Mozaic => (3341, "mozaic"), // extensions: mozaic, txt, zip
+        Platform::Zoia => (3003, "bin"),      // extensions: bin, zip
+    };
+
+    // reqwest client that retries failed requests
+    let retry_policy = ExponentialBackoff::builder().build_with_max_retries(5);
+    let client = ClientBuilder::new(Client::new())
+        .with(RetryTransientMiddleware::new_with_policy(retry_policy))
+        .build();
+
+    let paginated = PagedPatches {
+        client: client.clone(),
+    };
+    let mut pager = std::pin::pin!(paginated.pages(GetPatchesRequest { platform, page: 1 }));
+    while let Some(patches) = pager.try_next().await? {
+        println!("Processing {} patches", patches.len());
+        for patch in patches {
+            println!("{patch:#?}");
+
+            let mut filename = args.output_dir.join(&patch.slug);
+            filename.set_extension(extension);
+
+            if filename.exists() {
+                if args.overwrite {
+                    println!("Overwriting file: {filename}");
+                } else {
+                    println!("Retaining file: {filename}");
+                    continue;
+                }
+            }
+
+            let id = patch.id.as_u64().context("expected unsigned patch id")?;
+            let metadata = get_patch_metadata(&client, id).await?;
+            println!("{metadata:#?}");
+
+            let patch_file = &metadata.files[0];
+            if !has_extension(&patch_file.filename, &extension) {
+                println!("Skipping file: {}", patch_file.filename);
+                continue;
+            }
+
+            let mut buf = get_patch_bytes(&client, &patch_file.url).await?;
+            println!("Read {} bytes", buf.len());
+
+            if extension == "syx" {
+                if let Some(filtered) = sysex_filter(&buf) {
+                    buf = filtered.to_vec();
+                    println!("Accepted {} bytes", buf.len());
+                } else {
+                    println!("Nothing trimmed");
+                }
+            }
+
+            let mut file = File::create(&filename)?;
+            println!("Writing file: {filename}");
+            file.write_all(&buf)?;
+        }
+    }
+    Ok(())
+}
+
 #[derive(clap::ValueEnum, Clone, Debug, Default, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 enum Platform {
@@ -136,12 +227,12 @@ async fn get_patch_bytes(client: &ClientWithMiddleware, url: &str) -> Result<Vec
 
 fn sysex_filter(buf: &[u8]) -> Option<&[u8]> {
     let mut iter = buf.iter();
-    let start = iter.position(|&x| x >= 0xF0)?;
+    let start = iter.position(|x| *x >= 0xF0)?;
     if buf[start] != 0xF0 {
         eprintln!("Unsupported system message '{:?}'", buf[start]);
         return None;
     }
-    let last = iter.position(|&x| x == 0xF7)?;
+    let last = iter.position(|x| *x == 0xF7)?;
     let end = start + last + 2;
     if (start, end) == (0, buf.len()) {
         // Unchanged
@@ -174,95 +265,4 @@ fn has_extension_test() {
     assert!(!has_extension("basename.syx", "bin"));
     assert!(has_extension("basename.syx", "syx"));
     assert!(has_extension("basename.tar.gz", "gz"));
-}
-
-// TODO: Add dry-run, limit and search
-#[derive(Debug, Parser)]
-#[clap(version)]
-struct Args {
-    /// Where to put the patches
-    #[clap(short, long, default_value = "out")]
-    output_dir: Utf8PathBuf,
-
-    /// Overwrite file if it already exists
-    #[clap(long, default_value = "false")]
-    overwrite: bool,
-
-    /// Platform
-    #[clap(short, long, default_value_t, value_enum)]
-    platform: Platform,
-}
-
-#[tokio::main]
-async fn main() -> Result<()> {
-    let args = Args::parse();
-    dbg!(&args);
-    ensure!(
-        args.output_dir.exists(),
-        "output directory `{}` doesn't exist",
-        args.output_dir
-    );
-
-    let (platform, extension) = match args.platform {
-        Platform::MerisLvx => (8008, "syx"),
-        Platform::MerisMercuryX => (9190, "syx"),
-        Platform::Mozaic => (3341, "mozaic"), // extensions: mozaic, txt, zip
-        Platform::Zoia => (3003, "bin"),      // extensions: bin, zip
-    };
-
-    // reqwest client that retries failed requests
-    let retry_policy = ExponentialBackoff::builder().build_with_max_retries(5);
-    let client = ClientBuilder::new(Client::new())
-        .with(RetryTransientMiddleware::new_with_policy(retry_policy))
-        .build();
-
-    let paginated = PagedPatches {
-        client: client.clone(),
-    };
-    let mut pager = std::pin::pin!(paginated.pages(GetPatchesRequest { platform, page: 1 }));
-    while let Some(patches) = pager.try_next().await? {
-        println!("Processing {} patches", patches.len());
-        for patch in patches {
-            println!("{patch:#?}");
-
-            let mut filename = args.output_dir.join(&patch.slug);
-            filename.set_extension(extension);
-
-            if filename.exists() {
-                if args.overwrite {
-                    println!("Overwriting file: {filename}");
-                } else {
-                    println!("Retaining file: {filename}");
-                    continue;
-                }
-            }
-
-            let id = patch.id.as_u64().context("expected unsigned patch id")?;
-            let metadata = get_patch_metadata(&client, id).await?;
-            println!("{metadata:#?}");
-
-            let patch_file = &metadata.files[0];
-            if !has_extension(&patch_file.filename, &extension) {
-                println!("Skipping file: {}", patch_file.filename);
-                continue;
-            }
-
-            let mut buf = get_patch_bytes(&client, &patch_file.url).await?;
-            println!("Read {} bytes", buf.len());
-
-            if extension == "syx" {
-                if let Some(filtered) = sysex_filter(&buf) {
-                    buf = filtered.to_vec();
-                    println!("Accepted {} bytes", buf.len());
-                } else {
-                    println!("Nothing trimmed");
-                }
-            }
-
-            let mut file = File::create(&filename)?;
-            println!("Writing file: {filename}");
-            file.write_all(&buf)?;
-        }
-    }
-    Ok(())
 }
