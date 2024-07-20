@@ -86,7 +86,7 @@ async fn main() -> Result<()> {
             println!("{metadata:#?}");
 
             let patch_file = &metadata.files[0];
-            if !has_extension(&patch_file.filename, &extension) {
+            if !has_extension(&patch_file.filename, extension) {
                 println!("Skipping file: {}", patch_file.filename);
                 continue;
             }
@@ -158,7 +158,7 @@ struct PagedPatches {
 impl PagedPatches {
     async fn get_patches_page(&self, request: GetPatchesRequest) -> Result<PatchesPage> {
         let response = self.client.get(&request.build()).send().await?;
-        let has_next = self.has_next(&response.headers())?;
+        let has_next = self.has_next(response.headers())?;
         let patches = response.json::<Vec<Patch>>().await?;
         Ok(PatchesPage { patches, has_next })
     }
