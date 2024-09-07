@@ -157,7 +157,7 @@ struct PagedPatches {
 
 impl PagedPatches {
     async fn get_patches_page(&self, request: GetPatchesRequest) -> Result<PatchesPage> {
-        let response = self.client.get(&request.build()).send().await?;
+        let response = self.client.get(request.build()).send().await?;
         let has_next = self.has_next(response.headers())?;
         let patches = response.json::<Vec<Patch>>().await?;
         Ok(PatchesPage { patches, has_next })
