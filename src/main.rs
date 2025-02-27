@@ -48,6 +48,7 @@ async fn main() -> Result<()> {
     );
 
     let (platform, extension) = match args.platform {
+        Platform::MerisEnzoX => (10559, "syx"),
         Platform::MerisLvx => (8008, "syx"),
         Platform::MerisMercuryX => (9190, "syx"),
         Platform::Mozaic => (3341, "mozaic"), // extensions: mozaic, txt, zip
@@ -114,6 +115,8 @@ async fn main() -> Result<()> {
 #[derive(clap::ValueEnum, Clone, Debug, Default, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 enum Platform {
+    /// Meris Enzo X
+    MerisEnzoX,
     /// Meris LVX
     #[default]
     MerisLvx,
