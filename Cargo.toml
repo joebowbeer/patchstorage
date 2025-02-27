@@ -1,17 +1,17 @@
 [package]
 name = "patchstorage"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 
 [dependencies]
-anyhow = "1.0.95"
+anyhow = "1.0.96"
 camino = "1.1.9"
-clap = { version = "4.5.23", features = ["derive"] }
+clap = { version = "4.5.31", features = ["derive"] }
 futures-util = "0.3.31"
 page-turner = "1.0.0"
 parse_link_header = "0.4.0"
 reqwest = { version = "0.12.12", features = ["json"] }
-reqwest-middleware = { version = "0.4.0", features = ["json"] }
+reqwest-middleware = { version = "0.4.1", features = ["json"] }
 reqwest-retry = "0.7.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
