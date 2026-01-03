@@ -48,6 +48,7 @@ async fn main() -> Result<()> {
     );
 
     let (platform, extension) = match args.platform {
+        Platform::EventideH90 => (8271, "pgm90"), // extensions: pgm90, lst90, preset90
         Platform::MerisEnzoX => (10559, "syx"),
         Platform::MerisLvx => (8008, "syx"),
         Platform::MerisMercuryX => (9190, "syx"),
@@ -115,6 +116,8 @@ async fn main() -> Result<()> {
 #[derive(clap::ValueEnum, Clone, Debug, Default, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 enum Platform {
+    /// Eventide H90
+    EventideH90,
     /// Meris Enzo X
     MerisEnzoX,
     /// Meris LVX

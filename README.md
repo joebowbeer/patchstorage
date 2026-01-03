@@ -1,6 +1,6 @@
-Download Meris patches from patchstorage.
+Download Eventide and Meris patches from patchstorage.
 
-Supports Meris Enzo X, Meris LVX, and Meris MercuryX.
+Supports Eventide H90, Meris Enzo X, Meris LVX, and Meris MercuryX.
 
 ```shell
 cargo build && cargo test
