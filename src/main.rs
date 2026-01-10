@@ -72,14 +72,12 @@ async fn main() -> Result<()> {
 
             let mut filename = args.output_dir.join(&patch.slug);
 
-            // if not overwriting, bail if file with supported extension already exists
-            if (!args.overwrite) && extensions.iter().any(|ext| {
-                let mut candidate = filename.clone();
-                candidate.set_extension(ext);
-                candidate.exists()
-            }) {
-                println!("Retaining file: {filename}.[{}]", extensions.join("|"));
-                continue;
+            // if not overwriting, bail if a file with a supported extension already exists
+            if !args.overwrite {
+                if let Some(existing) = find_existing(&filename, &extensions) {
+                    println!("Retaining file: {existing:?}");
+                    continue;
+                }
             }
 
             let id = patch.id.as_u64().context("expected unsigned patch id")?;
@@ -240,6 +238,18 @@ async fn get_patch_bytes(client: &ClientWithMiddleware, url: &str) -> Result<Vec
     let response = client.get(url).send().await?;
     let bytes = response.bytes().await?;
     Ok(bytes.to_vec())
+}
+
+fn find_existing(filename: &Utf8PathBuf, extensions: &[&str]) -> Option<Utf8PathBuf> {
+    let mut candidate = filename.clone();
+    if extensions.iter().any(|ext| {
+        candidate.set_extension(ext);
+        candidate.exists()
+    }) {
+        Some(candidate)
+    } else {
+        None
+    }
 }
 
 fn sysex_filter(buf: &[u8]) -> Option<&[u8]> {
