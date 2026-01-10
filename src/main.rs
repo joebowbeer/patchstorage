@@ -10,7 +10,6 @@ use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
 use reqwest_retry::{policies::ExponentialBackoff, RetryTransientMiddleware};
 use serde::{Deserialize, Serialize};
 use serde_json::Number;
-use std::ffi::OsStr;
 use std::fs::File;
 use std::io::Write;
 use std::path::Path;
@@ -47,13 +46,13 @@ async fn main() -> Result<()> {
         args.output_dir
     );
 
-    let (platform, extension) = match args.platform {
-        Platform::EventideH90 => (8271, "pgm90"), // extensions: pgm90, lst90, preset90
-        Platform::MerisEnzoX => (10559, "syx"),
-        Platform::MerisLvx => (8008, "syx"),
-        Platform::MerisMercuryX => (9190, "syx"),
-        Platform::Mozaic => (3341, "mozaic"), // extensions: mozaic, txt, zip
-        Platform::Zoia => (3003, "bin"),      // extensions: bin, zip
+    let (platform, extensions) = match args.platform {
+        Platform::EventideH90 => (8271, vec!["lst90", "pgm90", "preset90"]),
+        Platform::MerisEnzoX => (10559, vec!["syx"]),
+        Platform::MerisLvx => (8008, vec!["syx"]),
+        Platform::MerisMercuryX => (9190, vec!["syx"]),
+        Platform::Mozaic => (3341, vec!["mozaic"]), // extensions: mozaic, bin, zip
+        Platform::Zoia => (3003, vec!["bin"]),      // extensions: bin, zip
     };
 
     // reqwest client that retries failed requests
@@ -72,15 +71,15 @@ async fn main() -> Result<()> {
             println!("{patch:#?}");
 
             let mut filename = args.output_dir.join(&patch.slug);
-            filename.set_extension(extension);
 
-            if filename.exists() {
-                if args.overwrite {
-                    println!("Overwriting file: {filename}");
-                } else {
-                    println!("Retaining file: {filename}");
-                    continue;
-                }
+            // if not overwriting, bail if file with supported extension already exists
+            if (!args.overwrite) && extensions.iter().any(|ext| {
+                let mut candidate = filename.clone();
+                candidate.set_extension(ext);
+                candidate.exists()
+            }) {
+                println!("Retaining file: {filename}.[{}]", extensions.join("|"));
+                continue;
             }
 
             let id = patch.id.as_u64().context("expected unsigned patch id")?;
@@ -88,9 +87,21 @@ async fn main() -> Result<()> {
             println!("{metadata:#?}");
 
             let patch_file = &metadata.files[0];
-            if !has_extension(&patch_file.filename, extension) {
-                println!("Skipping file: {}", patch_file.filename);
-                continue;
+            let extension = match Path::new(&patch_file.filename)
+                .extension()
+                .and_then(|s| s.to_str())
+                .and_then(|ext| if extensions.contains(&ext) { Some(ext) } else { None })
+            {
+                Some(ext) => ext,
+                None => {
+                    println!("Skipping file: {}", patch_file.filename);
+                    continue;
+                }
+            };
+
+            filename.set_extension(extension);
+            if filename.exists() {
+                println!("Overwriting file: {filename}");
             }
 
             let mut buf = get_patch_bytes(&client, &patch_file.url).await?;
@@ -259,16 +270,4 @@ fn sysex_filter_test() {
         sysex_filter(&[0xF0, 0xF7, 0xB0, 0x76, 0x00]).unwrap().len(),
         2
     );
-}
-
-fn has_extension(filename: &str, extension: &str) -> bool {
-    Path::new(filename).extension() == Some(OsStr::new(extension))
-}
-
-#[test]
-fn has_extension_test() {
-    assert!(!has_extension("basename", "bin"));
-    assert!(!has_extension("basename.syx", "bin"));
-    assert!(has_extension("basename.syx", "syx"));
-    assert!(has_extension("basename.tar.gz", "gz"));
 }
