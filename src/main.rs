@@ -47,7 +47,7 @@ async fn main() -> Result<()> {
     );
 
     let (platform, extensions) = match args.platform {
-        Platform::EventideH90 => (8271, vec!["lst90", "pgm90", "preset90"]),
+        Platform::EventideH90 => (8271, vec!["lst90", "pgm90", "preset90", "zip"]),
         Platform::MerisEnzoX => (10559, vec!["syx"]),
         Platform::MerisLvx => (8008, vec!["syx"]),
         Platform::MerisMercuryX => (9190, vec!["syx"]),
