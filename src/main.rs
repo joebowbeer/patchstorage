@@ -47,12 +47,12 @@ async fn main() -> Result<()> {
     );
 
     let (platform, extensions) = match args.platform {
-        Platform::EventideH90 => (8271, vec!["lst90", "pgm90", "preset90", "zip"]),
+        Platform::EventideH90 => (8271, vec!["pgm90", "lst90", "preset90", "zip"]),
         Platform::MerisEnzoX => (10559, vec!["syx"]),
         Platform::MerisLvx => (8008, vec!["syx"]),
         Platform::MerisMercuryX => (9190, vec!["syx"]),
-        Platform::Mozaic => (3341, vec!["mozaic"]), // extensions: mozaic, bin, zip
-        Platform::Zoia => (3003, vec!["bin"]),      // extensions: bin, zip
+        Platform::Mozaic => (3341, vec!["mozaic", "bin", "zip"]),
+        Platform::Zoia => (3003, vec!["bin", "zip"]),
     };
 
     // reqwest client that retries failed requests

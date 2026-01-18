@@ -1,6 +1,12 @@
 Download Eventide and Meris patches from patchstorage.
 
-Supports Eventide H90, Meris Enzo X, Meris LVX, and Meris MercuryX.
+Supports:
+* Eventide H90
+* Meris Enzo X
+* Meris LVX
+* Meris MercuryX
+* Bram Bos Mozaic
+* Empress ZOIA
 
 ```shell
 cargo build && cargo test
